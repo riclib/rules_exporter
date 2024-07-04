@@ -13,13 +13,15 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/riclib/rules_exporter/cache"
 	"gopkg.in/yaml.v2"
 )
 
 // Define the structure to match the YAML file
 type Rule struct {
-	Record string `yaml:"record"`
-	Expr   string `yaml:"expr"`
+	Record string        `yaml:"record"`
+	Expr   string        `yaml:"expr"`
+	Cache  time.Duration `yaml:"cache"`
 }
 
 type Group struct {
@@ -34,6 +36,7 @@ type Config struct {
 
 var (
 	ruleMetrics = map[string]*prometheus.GaugeVec{}
+	queryCache  = cache.NewCache()
 )
 
 func loadConfig(configFile string) (Config, error) {
@@ -51,9 +54,14 @@ func loadConfig(configFile string) (Config, error) {
 	return config, nil
 }
 
-func queryPrometheus(endpoint string, query string) ([]map[string]interface{}, error) {
+func queryPrometheus(endpoint string, query string, cacheDuration time.Duration) ([]map[string]interface{}, error) {
+	cacheKey := fmt.Sprintf("%s:%s", endpoint, query)
+	if cachedResult, found := queryCache.Get(cacheKey); found {
+		log.Printf("Cache hit for %s", cacheKey)
+		return cachedResult.([]map[string]interface{}), nil
+	}
+
 	client := http.Client{Timeout: 50 * time.Second}
-	//url encode the parameter
 	query = url.QueryEscape(query)
 	resp, err := client.Get(fmt.Sprintf("%s/api/v1/query?query=%s", endpoint, query))
 	if err != nil {
@@ -78,6 +86,7 @@ func queryPrometheus(endpoint string, query string) ([]map[string]interface{}, e
 		parsedResults = append(parsedResults, labels)
 	}
 
+	queryCache.Set(cacheKey, parsedResults, cacheDuration)
 	return parsedResults, nil
 }
 
@@ -98,7 +107,8 @@ func handler(config Config) http.HandlerFunc {
 		registry := prometheus.NewRegistry() // Create a new registry for custom metrics
 
 		for _, rule := range group.Rules {
-			results, err := queryPrometheus(group.Endpoint, rule.Expr)
+
+			results, err := queryPrometheus(group.Endpoint, rule.Expr, rule.Cache)
 			if err != nil {
 				log.Printf("Error querying Prometheus for rule %s: %v", rule.Record, err)
 				continue

@@ -1,13 +1,15 @@
 targets:
-  cdc:
+  test:
     endpoint: http://localhost:9090
     rules:
       - record: prom:engine:rate:1h
         expr: rate(prometheus_engine_query_duration_seconds_count[1h])
       - record: prom:engine:rate:1d
         expr: rate(prometheus_engine_query_duration_seconds_count[1d])
+        cache: 5m
       - record: prom:engine:rate:1w
         expr: rate(prometheus_engine_query_duration_seconds_count[1w])
+        cache: 1h
   cdl:
     endpoint: http://server:9090
     rules:
