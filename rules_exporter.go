@@ -37,6 +37,7 @@ type Config struct {
 var (
 	ruleMetrics = map[string]*prometheus.GaugeVec{}
 	queryCache  = cache.NewCache()
+	registry    = prometheus.NewRegistry() // Create a new registry for custom metrics
 )
 
 func loadConfig(configFile string) (Config, error) {
@@ -103,8 +104,6 @@ func handler(config Config) http.HandlerFunc {
 			http.Error(w, "Target not found", http.StatusNotFound)
 			return
 		}
-
-		registry := prometheus.NewRegistry() // Create a new registry for custom metrics
 
 		for _, rule := range group.Rules {
 
