@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -51,7 +52,9 @@ func loadConfig(configFile string) (Config, error) {
 }
 
 func queryPrometheus(endpoint string, query string) ([]map[string]interface{}, error) {
-	client := http.Client{Timeout: 10 * time.Second}
+	client := http.Client{Timeout: 50 * time.Second}
+	//url encode the parameter
+	query = url.QueryEscape(query)
 	resp, err := client.Get(fmt.Sprintf("%s/api/v1/query?query=%s", endpoint, query))
 	if err != nil {
 		return nil, err
