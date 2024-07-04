@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -31,12 +32,10 @@ type Config struct {
 }
 
 var (
-	configFile    = "rules.yaml"
-	prometheusURL = "http://localhost:9090"
-	ruleMetrics   = map[string]*prometheus.GaugeVec{}
+	ruleMetrics = map[string]*prometheus.GaugeVec{}
 )
 
-func loadConfig() (Config, error) {
+func loadConfig(configFile string) (Config, error) {
 	data, err := ioutil.ReadFile(configFile)
 	if err != nil {
 		return Config{}, err
@@ -93,6 +92,8 @@ func handler(config Config) http.HandlerFunc {
 			return
 		}
 
+		registry := prometheus.NewRegistry() // Create a new registry for custom metrics
+
 		for _, rule := range group.Rules {
 			results, err := queryPrometheus(group.Endpoint, rule.Expr)
 			if err != nil {
@@ -115,16 +116,17 @@ func handler(config Config) http.HandlerFunc {
 						Name: rule.Record,
 						Help: fmt.Sprintf("Value of Prometheus query: %s", rule.Expr),
 					}, getLabelNames(labels))
-					prometheus.MustRegister(metricVec)
 					ruleMetrics[rule.Record] = metricVec
 					metric = metricVec
+					registry.MustRegister(metric) // Register the metric with the custom registry
 				}
 
 				metric.With(labels).Set(value)
 			}
 		}
 
-		promhttp.Handler().ServeHTTP(w, r)
+		h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
+		h.ServeHTTP(w, r)
 	}
 }
 
@@ -137,11 +139,20 @@ func getLabelNames(labels prometheus.Labels) []string {
 }
 
 func main() {
-	config, err := loadConfig()
+	// Define the command line parameters
+	listenAddress := flag.String("web.listen-address", "0.0.0.0:9401", "Address to listen on for web interface and telemetry.")
+	configFile := flag.String("config.file", "rules_exporter.yaml", "Path to configuration file.")
+	flag.Parse()
+
+	// Load the configuration file
+	config, err := loadConfig(*configFile)
 	if err != nil {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
-	http.Handle("/probe", handler(config))
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	http.Handle("/probe", handler(config)) // Use the config in the handler
+	fmt.Printf("Listening on %s\n", *listenAddress)
+	if err := http.ListenAndServe(*listenAddress, nil); err != nil {
+		log.Fatalf("Error starting HTTP server: %v", err)
+	}
 }
